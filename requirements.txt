@@ -1,0 +1,4 @@
+aiohttp
+playwright
+python-telegram-bot
+asyncio
