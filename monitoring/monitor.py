@@ -37,7 +37,12 @@ estado_mesas = defaultdict(
         "ultima_atualizacao_tendencias": None,
         "entrada_ativa": False,
         "numero_entrada": None,
-        "gale": 0,
+        "modo_real": False,
+        "entradas_reais_restantes": 0,
+        "validacoes_silenciosas_consec_greens": 0,
+        "aguardando_loss_para_resetar": False,
+        "alerta_enviado": False,
+        "ultimo_numero_processado": None,
     }
 )
 
@@ -49,24 +54,19 @@ def pertence_ao_padrao(numero):
 def analisar_tendencias(historico):
     historico = list(historico)
     tendencias = {n: {"chamou_z": 0, "total": 0} for n in range(37)}
-
     for idx in range(3, len(historico)):
         numero_atual = historico[idx]
         anteriores = historico[idx - 3 : idx][::-1]
-
         for anterior in anteriores:
             if pertence_ao_padrao(anterior):
                 tendencias[numero_atual]["chamou_z"] += 1
                 break
-
         tendencias[numero_atual]["total"] += 1
-
     for numero in tendencias:
         total = tendencias[numero]["total"]
         chamou_z = tendencias[numero]["chamou_z"]
         porcentagem = round((chamou_z / total * 100), 2) if total > 0 else 0
         tendencias[numero]["porcentagem"] = porcentagem
-
     return tendencias
 
 
@@ -79,39 +79,10 @@ def get_top_tendencias(tendencias, n=10):
     return sorted(filtrado.items(), key=lambda x: -x[1]["porcentagem"])[:n]
 
 
-def formatar_tendencias_console(
-    roulette_id, top_tendencias, tendencias, historico_size
-):
-    header = (
-        f"\n=== TENDÊNCIAS {roulette_id} === (Últimas {historico_size} rodadas) ==="
-    )
-    print(header)
-    if not top_tendencias:
-        print("Aguardando dados suficientes para análise...")
-        return
-    for i, (num, stats) in enumerate(top_tendencias, 1):
-        print(
-            f"{i}º - Número {num}: {stats['porcentagem']}% (Z em {stats['chamou_z']}/{stats['total']})"
-        )
-    print("=" * len(header.split("\n")[0]))
-
-
 async def notificar_entrada(roulette_id, numero, tendencias):
     stats = tendencias[numero]
     message = f"🔥 ENTRADA Padrão Z - {numero} ({stats['chamou_z']}/{stats['total']})\n"
     await send_telegram_message(message, LINK_MESA_BASE)
-
-
-async def enviar_tendencias_telegram(
-    roulette_id, top_tendencias, tendencias, historico_size
-):
-    message = "📊 *TENDÊNCIAS ATUALIZADAS* 📊\n\n"
-    message += "⚠️ *PADRÃO Z* ⚠️\n\n"
-    message += f"🎰 Mesa: {escape_markdown_v2(roulette_id)} - Playtech\n\n"
-    for i, (num, stats) in enumerate(top_tendencias, 1):
-        message += f"{i}º - Número *{num}*: _{stats['porcentagem']}%_ ({stats['chamou_z']}/{stats['total']})\n\n"
-    message += "\n🔔 Entradas confirmadas quando estes números aparecerem!"
-    await send_telegram_message(message)
 
 
 async def fetch_results_http(session, mesa_nome):
@@ -124,12 +95,6 @@ async def fetch_results_http(session, mesa_nome):
 async def monitor_roulette(roulette_id):
     print(f"[INICIANDO] Monitorando mesa: {roulette_id}")
     mesa = estado_mesas[roulette_id]
-    mesa["notificacao_inicial_enviada"] = False
-    mesa["ultima_porcentagem_top"] = {}
-    mesa["entrada_ativa"] = False
-    mesa["numero_entrada"] = None
-    mesa["gale"] = 0
-    mesa["ultimo_numero_processado"] = None
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -146,8 +111,6 @@ async def monitor_roulette(roulette_id):
                             "consec_greens": 0,
                             "data_atual": hoje,
                             "sinais_enviados": 0,
-                            "notificacao_inicial_enviada": False,
-                            "ultima_porcentagem_top": {},
                             "contador_rodadas": 0,
                         }
                     )
@@ -168,18 +131,8 @@ async def monitor_roulette(roulette_id):
                     novo_top = get_top_tendencias(nova_tendencia)
                     novo_top_numeros = [num for num, _ in novo_top]
 
-                    mudou_porcentagem = any(
-                        mesa["ultima_porcentagem_top"].get(num)
-                        != nova_tendencia[num]["porcentagem"]
-                        for num in novo_top_numeros
-                    )
-
                     mesa["tendencias"] = nova_tendencia
                     mesa["top_tendencias"] = novo_top_numeros
-                    mesa["ultima_porcentagem_top"] = {
-                        num: nova_tendencia[num]["porcentagem"]
-                        for num in novo_top_numeros
-                    }
 
                     numero_atual = mesa["historico"][0]
 
@@ -193,45 +146,90 @@ async def monitor_roulette(roulette_id):
                         mesa["entrada_ativa"] = True
                         mesa["numero_entrada"] = numero_atual
                         mesa["gale"] = 0
-                        formatar_tendencias_console(
-                            roulette_id, novo_top, nova_tendencia, historico_size
-                        )
-                        await notificar_entrada(
-                            roulette_id, numero_atual, nova_tendencia
-                        )
 
                     elif mesa["entrada_ativa"]:
                         if pertence_ao_padrao(numero_atual):
-                            mesa["greens"] += 1
                             mesa["total"] += 1
-                            if mesa["gale"] == 1:
-                                mesa["greens_g1"] += 1
-                            elif mesa["gale"] == 2:
-                                mesa["greens_g2"] += 1
 
-                            await send_telegram_message(
-                                f"✅✅✅ GREEN!!! ✅✅✅\n\n({mesa['historico'][0]}|{mesa['historico'][1]}|{mesa['historico'][2]})"
-                            )
+                            if not mesa["modo_real"]:
+                                if not mesa["aguardando_loss_para_resetar"]:
+                                    mesa["validacoes_silenciosas_consec_greens"] += 1
+                                    print(
+                                        f"[GREEN SILENCIOSO] {numero_atual} | Contagem atual: {mesa['validacoes_silenciosas_consec_greens']}"
+                                    )
+
+                                    if (
+                                        mesa["validacoes_silenciosas_consec_greens"]
+                                        == 6
+                                        and not mesa["alerta_enviado"]
+                                    ):
+                                        message = (
+                                            f"⚠️ POSSÍVEL ENTRADA ⚠️\n\n"
+                                            f"🎰 Mesa: {escape_markdown_v2(roulette_id)}"
+                                        )
+                                        await send_telegram_message(
+                                            message, LINK_MESA_BASE
+                                        )
+                                        mesa["alerta_enviado"] = True
+
+                                    if (
+                                        mesa["validacoes_silenciosas_consec_greens"]
+                                        >= 7
+                                    ):
+                                        mesa["modo_real"] = True
+                                        mesa["entradas_reais_restantes"] = 3
+                                        mesa["alerta_enviado"] = False
+                                        await send_telegram_message(
+                                            "🚨 Entradas liberadas! Padrão Z validado com 7+ greens consecutivos."
+                                        )
+                                else:
+                                    print(
+                                        f"[GREEN SILENCIOSO CONTINUA] {numero_atual} | Aguardando LOSS para resetar validação."
+                                    )
+                            else:
+                                mesa["greens"] += 1
+                                if mesa["gale"] == 1:
+                                    mesa["greens_g1"] += 1
+                                elif mesa["gale"] == 2:
+                                    mesa["greens_g2"] += 1
+
+                                await send_telegram_message(
+                                    f"✅✅✅ GREEN!!! ✅✅✅\n\n({mesa['historico'][0]}|{mesa['historico'][1]}|{mesa['historico'][2]})"
+                                )
+
+                                mesa["entradas_reais_restantes"] -= 1
+                                if mesa["entradas_reais_restantes"] <= 0:
+                                    mesa["modo_real"] = False
+                                    mesa["aguardando_loss_para_resetar"] = True
+                                    print(
+                                        "[MODO SILENCIOSO REATIVADO] Entradas reais encerradas, aguardando um LOSS silencioso para reiniciar validação."
+                                    )
+
                             mesa["entrada_ativa"] = False
                             mesa["numero_entrada"] = None
                             mesa["gale"] = 0
 
                         elif mesa["gale"] == 0:
                             mesa["gale"] = 1
-                            await send_telegram_message(
-                                f"🔁 Primeiro GALE ({numero_atual})"
-                            )
                         elif mesa["gale"] == 1:
                             mesa["gale"] = 2
-                            await send_telegram_message(
-                                f"🔁 Segundo e último GALE ({numero_atual})"
-                            )
                         else:
-                            mesa["loss"] += 1
-                            mesa["total"] += 1
-                            await send_telegram_message(
-                                f"❌❌❌ LOSS!!! ❌❌❌\n\n({mesa['historico'][0]}|{mesa['historico'][1]}|{mesa['historico'][2]})"
-                            )
+                            if mesa["modo_real"]:
+                                mesa["loss"] += 1
+                                mesa["total"] += 1
+                                await send_telegram_message(
+                                    f"❌❌❌ LOSS!!! ❌❌❌\n\n({mesa['historico'][0]}|{mesa['historico'][1]}|{mesa['historico'][2]})"
+                                )
+                            else:
+                                print(
+                                    f"[LOSS SILENCIOSO] {numero_atual} - contador resetado"
+                                )
+                                mesa["validacoes_silenciosas_consec_greens"] = 0
+                                mesa["alerta_enviado"] = False
+                                mesa["aguardando_loss_para_resetar"] = False
+
+                            mesa["modo_real"] = False
+                            mesa["entradas_reais_restantes"] = 0
                             mesa["entrada_ativa"] = False
                             mesa["numero_entrada"] = None
                             mesa["gale"] = 0
