@@ -185,10 +185,7 @@ async def monitor_roulette(roulette_id):
                                         and not mesa["aguardando_setima_entrada"]
                                     ):
                                         message = (
-                                            f"⚠️ POSSÍVEL ENTRADA ⚠️\n\n"
-                                            f"🎰 Mesa: {escape_markdown_v2(roulette_id)}\n"
-                                            f"📊 6 greens consecutivos validados!\n"
-                                            f"🔍 Aguardando 7ª entrada para confirmação..."
+                                            f"⚠️ POSSÍVEL ENTRADA PADRÃO Z ⚠️\n\n"
                                         )
                                         await send_telegram_message(
                                             message, LINK_MESA_BASE
@@ -216,8 +213,7 @@ async def monitor_roulette(roulette_id):
 
                                         await send_telegram_message(
                                             "🚨 ENTRADAS LIBERADAS! 🚨\n\n"
-                                            "✅ Padrão Z validado com 7 greens consecutivos\n"
-                                            "🎯 Próximas 3 entradas serão enviadas ao canal!"
+                                            "✅ Padrão Z validado com 7 greens consecutivos"
                                         )
 
                                 else:
