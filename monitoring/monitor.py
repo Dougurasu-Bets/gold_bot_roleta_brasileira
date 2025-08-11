@@ -5,7 +5,7 @@ from datetime import datetime
 from bot.utils import escape_markdown_v2, send_telegram_message
 from config import ROULETTES, HISTORICO_MAX
 
-RED_SNAKE = [1, 5, 9, 12, 14, 16, 19, 23, 27, 30, 32, 34]
+BLACK_SNAKE = [2, 6, 8, 10, 13, 17, 20, 24, 26, 28, 31, 35]
 HISTORICO_COMPLETO_SIZE = 500
 TENDENCIA_UPDATE_INTERVAL = 10
 MINIMO_OCORRENCIAS = 5
@@ -46,12 +46,12 @@ estado_mesas = defaultdict(
 
 
 def pertence_ao_padrao(numero):
-    return numero in RED_SNAKE
+    return numero in BLACK_SNAKE
 
 
 def analisar_tendencias(historico):
     historico = list(historico)
-    tendencias = {n: {"chamou_red_snake": 0, "total": 0} for n in range(37)}
+    tendencias = {n: {"chamou_black_snake": 0, "total": 0} for n in range(37)}
 
     for idx in range(3, len(historico)):
         numero_atual = historico[idx]
@@ -59,15 +59,15 @@ def analisar_tendencias(historico):
 
         for anterior in anteriores:
             if pertence_ao_padrao(anterior):
-                tendencias[numero_atual]["chamou_red_snake"] += 1
+                tendencias[numero_atual]["chamou_black_snake"] += 1
                 break
 
         tendencias[numero_atual]["total"] += 1
 
     for numero in tendencias:
         total = tendencias[numero]["total"]
-        chamou_red_snake = tendencias[numero]["chamou_red_snake"]
-        porcentagem = round((chamou_red_snake / total * 100), 2) if total > 0 else 0
+        chamou_black_snake = tendencias[numero]["chamou_black_snake"]
+        porcentagem = round((chamou_black_snake / total * 100), 2) if total > 0 else 0
         tendencias[numero]["porcentagem"] = porcentagem
 
     return tendencias
@@ -84,7 +84,7 @@ def get_top_tendencias(tendencias, n=10):
 
 async def notificar_entrada(roulette_id, numero, tendencias):
     stats = tendencias[numero]
-    message = f"🔥 ENTRADA PADRÃO RED SNAKE - {numero} ({stats['chamou_red_snake']}/{stats['total']})\n"
+    message = f"🔥 ENTRADA PADRÃO BLACK SNAKE - {numero} ({stats['chamou_black_snake']}/{stats['total']})\n"
     await send_telegram_message(message, LINK_MESA_BASE)
 
 
