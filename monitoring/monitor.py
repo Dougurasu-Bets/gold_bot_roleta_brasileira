@@ -85,7 +85,7 @@ def get_top_tendencias(tendencias, n=10):
 
 async def notificar_entrada(roulette_id, numero, tendencias):
     stats = tendencias[numero]
-    message = f"🔥 ENTRADA Padrão Z - {numero} ({stats['chamou_z']}/{stats['total']})\n"
+    message = f"🔥 ENTRADA PADRÃO Z - {numero} ({stats['chamou_z']}/{stats['total']})\n"
     await send_telegram_message(message, LINK_MESA_BASE)
 
 
