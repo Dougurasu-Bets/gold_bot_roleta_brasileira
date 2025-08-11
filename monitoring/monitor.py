@@ -5,7 +5,7 @@ from datetime import datetime
 from bot.utils import escape_markdown_v2, send_telegram_message
 from config import ROULETTES, HISTORICO_MAX
 
-PADRAO_Z = [0, 1, 5, 8, 10, 11, 14, 20, 23, 26, 30, 32]
+PADRAO_12 = [2, 4, 5, 6, 12, 16, 21, 24, 27, 28, 34, 35]
 HISTORICO_COMPLETO_SIZE = 500
 TENDENCIA_UPDATE_INTERVAL = 10
 MINIMO_OCORRENCIAS = 5
@@ -46,12 +46,12 @@ estado_mesas = defaultdict(
 
 
 def pertence_ao_padrao(numero):
-    return numero in PADRAO_Z
+    return numero in PADRAO_12
 
 
 def analisar_tendencias(historico):
     historico = list(historico)
-    tendencias = {n: {"chamou_z": 0, "total": 0} for n in range(37)}
+    tendencias = {n: {"chamou_12": 0, "total": 0} for n in range(37)}
 
     for idx in range(3, len(historico)):
         numero_atual = historico[idx]
@@ -59,15 +59,15 @@ def analisar_tendencias(historico):
 
         for anterior in anteriores:
             if pertence_ao_padrao(anterior):
-                tendencias[numero_atual]["chamou_z"] += 1
+                tendencias[numero_atual]["chamou_12"] += 1
                 break
 
         tendencias[numero_atual]["total"] += 1
 
     for numero in tendencias:
         total = tendencias[numero]["total"]
-        chamou_z = tendencias[numero]["chamou_z"]
-        porcentagem = round((chamou_z / total * 100), 2) if total > 0 else 0
+        chamou_12 = tendencias[numero]["chamou_12"]
+        porcentagem = round((chamou_12 / total * 100), 2) if total > 0 else 0
         tendencias[numero]["porcentagem"] = porcentagem
 
     return tendencias
@@ -84,7 +84,7 @@ def get_top_tendencias(tendencias, n=10):
 
 async def notificar_entrada(roulette_id, numero, tendencias):
     stats = tendencias[numero]
-    message = f"🔥 ENTRADA Padrão Z - {numero} ({stats['chamou_z']}/{stats['total']})\n"
+    message = f"🔥 ENTRADA PADRÃO 12 - {numero} ({stats['chamou_12']}/{stats['total']})\n"
     await send_telegram_message(message, LINK_MESA_BASE)
 
 
