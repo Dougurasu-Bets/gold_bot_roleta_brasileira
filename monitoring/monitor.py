@@ -170,9 +170,7 @@ async def monitor_roulette(roulette_id):
 
                         if mesa["entrada_real"] and mesa["entradas"] <= 3:
                             mesa["entradas"] += 1
-                            print(
-                                f"[ENTRADA REAL] #{mesa['entradas']}"
-                            )
+                            print(f"[ENTRADA REAL] #{mesa['entradas']}")
                             await notificar_entrada(
                                 roulette_id, numero_atual, nova_tendencia
                             )
@@ -185,7 +183,6 @@ async def monitor_roulette(roulette_id):
                                 mesa["greens_g1"] += 1
                             elif mesa["gale"] == 2:
                                 mesa["greens_g2"] += 1
-
 
                             if mesa["entrada_real"]:
                                 mesa["entrada_ativa"] = False
@@ -206,18 +203,19 @@ async def monitor_roulette(roulette_id):
 
                         elif mesa["gale"] == 0:
                             mesa["gale"] = 1
-                            await send_telegram_message(
-                                f"🔁 Primeiro GALE ({numero_atual})"
-                            )
+                            if mesa["entrada_real"]:
+                                await send_telegram_message(
+                                    f"🔁 Primeiro GALE ({numero_atual})"
+                                )
                         elif mesa["gale"] == 1:
                             mesa["gale"] = 2
-                            await send_telegram_message(
-                                f"🔁 Segundo e último GALE ({numero_atual})"
-                            )
+                            if mesa["entrada_real"]:
+                                await send_telegram_message(
+                                    f"🔁 Segundo e último GALE ({numero_atual})"
+                                )
                         else:
                             mesa["loss"] += 1
                             mesa["total"] += 1
-
                             if mesa["entrada_real"]:
                                 await send_telegram_message(
                                     f"❌❌❌ LOSS!!! ❌❌❌\n\n({numero_atual}|{mesa['historico'][1]}|{mesa['historico'][2]})"
