@@ -166,7 +166,7 @@ async def monitor_roulette(roulette_id):
                         elif mesa["greens_consecutivos"] == 7:
                             mesa["entrada_real"] = True
                             print(f"[ALERTA DE 7 GREENS] - {numero_atual}")
-                            msg = f"🚨🚨 PADRÃO 12\n\n 7 GREENS CONSECUTIVOS! 🚨🚨\n"
+                            msg = f"🚨🚨 PADRÃO BLACK SNAKE\n\n 7 GREENS CONSECUTIVOS! 🚨🚨\n"
                             await send_telegram_message(msg, LINK_MESA_BASE)
 
                         if mesa["entrada_real"] and mesa["entradas"] < 3:
@@ -175,7 +175,7 @@ async def monitor_roulette(roulette_id):
                             await notificar_entrada(
                                 roulette_id, numero_atual, nova_tendencia
                             )
-                            
+
                             if mesa["entradas"] == 3:
                                 mesa["entrada_real"] = False
 
