@@ -189,6 +189,7 @@ async def monitor_roulette(roulette_id):
 
                                 if mesa["entradas"] == 3:
                                     mesa["entrada_real"] = False
+                                    mesa["entradas"] = 0
                             else:
                                 mesa["entrada_ativa"] = False
                                 mesa["numero_entrada"] = None
@@ -230,6 +231,7 @@ async def monitor_roulette(roulette_id):
 
                                 if mesa["entradas"] == 3:
                                     mesa["entrada_real"] = False
+                                    mesa["entradas"] = 0
                             else:
                                 print(f"[LOSS SILENCIOSO] {numero_atual}")
                                 mesa["entrada_ativa"] = False
