@@ -317,10 +317,10 @@ async def monitor_roulette(roulette_id):
 
             await asyncio.sleep(2)
 
-            except Exception as e:
-                print(f"[ERRO] {roulette_id}: {str(e)}")
-                print(f"[ERRO] Tipo do erro: {type(e).__name__}")
-                await asyncio.sleep(5)
+        except Exception as e:
+            print(f"[ERRO] {roulette_id}: {str(e)}")
+            print(f"[ERRO] Tipo do erro: {type(e).__name__}")
+            await asyncio.sleep(5)
         finally:
             # Fechar sessão se existir
             if session and not session.closed:
