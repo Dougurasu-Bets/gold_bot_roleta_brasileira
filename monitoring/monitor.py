@@ -159,11 +159,16 @@ async def monitor_roulette(roulette_id):
 
     salvar_dados_monitoramento()
 
-    session = None
+    # Criar sessão uma única vez para manter conexão ativa
+    session = aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=30),
+        connector=aiohttp.TCPConnector(limit=100, limit_per_host=30)
+    )
+    
     while True:
         try:
-            # Criar nova sessão se necessário
-            if session is None or session.closed:
+            # Verificar se a sessão ainda está ativa, se não, recriar
+            if session.closed:
                 session = aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=30),
                     connector=aiohttp.TCPConnector(limit=100, limit_per_host=30)
@@ -321,10 +326,6 @@ async def monitor_roulette(roulette_id):
             print(f"[ERRO] {roulette_id}: {str(e)}")
             print(f"[ERRO] Tipo do erro: {type(e).__name__}")
             await asyncio.sleep(5)
-        finally:
-            # Fechar sessão se existir
-            if session and not session.closed:
-                await session.close()
 
 
 async def start_all():
