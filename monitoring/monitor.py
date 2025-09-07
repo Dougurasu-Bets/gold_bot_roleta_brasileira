@@ -1,5 +1,7 @@
 import asyncio
 import aiohttp
+import os
+import json
 from collections import defaultdict, deque
 from datetime import datetime
 from bot.utils import escape_markdown_v2, send_telegram_message
@@ -14,6 +16,9 @@ TENDENCIA_UPDATE_INTERVAL = 10
 
 API_URL = "https://casino.dougurasu-bets.online:9000/playtech/results.json"
 LINK_MESA_BASE = "https://geralbet.bet.br/live-casino/game/3763038"
+MONITORING_FILE = "/var/www/html/autobot/z_bot.json"
+# MONITORING_FILE = "z_bot.json"
+
 
 estado_mesas = defaultdict(
     lambda: {
@@ -96,6 +101,41 @@ async def fetch_results_http(session, mesa_nome):
         return [int(r["number"]) for r in resultados if r.get("number", "").isdigit()]
 
 
+def salvar_dados_monitoramento():
+    """Salva os dados de monitoramento em tempo real no arquivo JSON"""
+    try:
+        # Garantir que o diretório existe
+        dir_path = os.path.dirname(MONITORING_FILE)
+        if dir_path:  # Só cria diretório se não for vazio
+            os.makedirs(dir_path, exist_ok=True)
+
+        # Pegar dados da primeira mesa (Roleta Brasileira)
+        mesa = list(estado_mesas.values())[0] if estado_mesas else {}
+
+        # Preparar dados essenciais para salvamento
+        entradas_feitas = mesa.get("entradas", 0)
+        entrada_real = mesa.get("entrada_real", False)
+        entradas_restantes = 3 - entradas_feitas if entrada_real else 0
+
+        dados_monitoramento = {
+            "horario": datetime.now().strftime("%H:%M:%S"),
+            "greens_consecutivos": mesa.get("greens_consecutivos", 0),
+            "entrada_real": entrada_real,
+            "entradas": entradas_feitas,
+            "entradas_restantes": entradas_restantes,
+            "top_tendencias": mesa.get("top_tendencias", []),
+        }
+
+        # Salvar no arquivo JSON
+        with open(MONITORING_FILE, "w", encoding="utf-8") as f:
+            json.dump(dados_monitoramento, f, indent=2, ensure_ascii=False)
+
+        print(f"[MONITORING] Dados salvos em: {datetime.now().strftime('%H:%M:%S')}")
+
+    except Exception as e:
+        print(f"[ERRO] Falha ao salvar dados de monitoramento: {str(e)}")
+
+
 async def monitor_roulette(roulette_id):
     print(f"[INICIANDO] Monitorando mesa: {roulette_id}")
     mesa = estado_mesas[roulette_id]
@@ -105,6 +145,8 @@ async def monitor_roulette(roulette_id):
     mesa["numero_entrada"] = None
     mesa["gale"] = 0
     mesa["ultimo_numero_processado"] = None
+
+    salvar_dados_monitoramento()
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -143,12 +185,24 @@ async def monitor_roulette(roulette_id):
                     novo_top = get_top_tendencias(nova_tendencia)
                     novo_top_numeros = [num for num, _ in novo_top]
 
+                    top_tendencias_anterior = set(mesa["top_tendencias"])
+                    top_tendencias_atual = set(novo_top_numeros)
+                    top_tendencias_mudou = (
+                        top_tendencias_anterior != top_tendencias_atual
+                    )
+
                     mesa["tendencias"] = nova_tendencia
                     mesa["top_tendencias"] = novo_top_numeros
                     mesa["ultima_porcentagem_top"] = {
                         num: nova_tendencia[num]["porcentagem"]
                         for num in novo_top_numeros
                     }
+
+                    if top_tendencias_mudou:
+                        print(
+                            f"[MONITORING] Lista de números monitorados mudou: {top_tendencias_anterior} -> {top_tendencias_atual}"
+                        )
+                        salvar_dados_monitoramento()
 
                     numero_atual = mesa["historico"][0]
                     if numero_atual == mesa["ultimo_numero_processado"]:
@@ -205,6 +259,8 @@ async def monitor_roulette(roulette_id):
                                     msg = f"⚠️ PADRÃO Z ⚠️\n\n🚨 7 GREENS CONSECUTIVOS! 🚨\n"
                                     await send_telegram_message(msg, LINK_MESA_BASE)
 
+                            salvar_dados_monitoramento()
+
                         elif mesa["gale"] == 0:
                             mesa["gale"] = 1
                             if mesa["entrada_real"]:
@@ -238,6 +294,8 @@ async def monitor_roulette(roulette_id):
                                 mesa["numero_entrada"] = None
                                 mesa["gale"] = 0
                                 mesa["greens_consecutivos"] = 0
+
+                            salvar_dados_monitoramento()
 
                 await asyncio.sleep(2)
 
