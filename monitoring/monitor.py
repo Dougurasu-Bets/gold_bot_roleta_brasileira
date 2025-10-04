@@ -7,7 +7,7 @@ from datetime import datetime
 from bot.utils import send_telegram_message
 from config import ROULETTES
 
-PADRAO_12 = [2, 4, 5, 6, 12, 16, 21, 24, 27, 28, 34, 35]
+ORPHELINS = [1, 20, 14, 31, 9, 6, 34, 17]
 
 MINIMO_OCORRENCIAS = 5
 MINIMO_RODADAS_ANALISE = 50
@@ -16,8 +16,8 @@ TENDENCIA_UPDATE_INTERVAL = 10
 
 API_URL = "https://casino.dougurasu-bets.online:9000/playtech/results.json"
 LINK_MESA_BASE = "https://geralbet.bet.br/live-casino/game/3763038"
-MONITORING_FILE = "/var/www/html/autobot/p12_bot.json"
-# MONITORING_FILE = "p12_bot.json"
+# MONITORING_FILE = "/var/www/html/autobot/orph_bot.json"
+MONITORING_FILE = "orph_bot.json"
 
 
 estado_mesas = defaultdict(
@@ -47,60 +47,71 @@ estado_mesas = defaultdict(
         "greens_consecutivos": 0,
         "entrada_real": False,
         "entradas": 0,
+        "aguardando_novo_numero": False,
+        "ultimos_5_processados": [],
     }
 )
 
 
 def pertence_ao_padrao(numero):
-    return numero in PADRAO_12
+    return numero in ORPHELINS
 
 
 def analisar_tendencias(historico):
     historico = list(historico)
-    tendencias = {n: {"chamou_12": 0, "total": 0} for n in range(37)}
+    tendencias = {n: {"chamou_orph": 0, "total": 0} for n in ORPHELINS}
 
     for idx in range(3, len(historico)):
         numero_atual = historico[idx]
         anteriores = historico[idx - 3 : idx][::-1]
 
-        for anterior in anteriores:
-            if pertence_ao_padrao(anterior):
-                tendencias[numero_atual]["chamou_12"] += 1
-                break
+        if numero_atual in ORPHELINS:
+            for anterior in anteriores:
+                if pertence_ao_padrao(anterior):
+                    tendencias[numero_atual]["chamou_orph"] += 1
+                    break
 
-        tendencias[numero_atual]["total"] += 1
+            tendencias[numero_atual]["total"] += 1
 
     for numero in tendencias:
         total = tendencias[numero]["total"]
-        chamou_12 = tendencias[numero]["chamou_12"]
-        porcentagem = round((chamou_12 / total * 100), 2) if total > 0 else 0
+        chamou_orph = tendencias[numero]["chamou_orph"]
+        porcentagem = round((chamou_orph / total * 100), 2) if total > 0 else 0
         tendencias[numero]["porcentagem"] = porcentagem
 
     return tendencias
 
 
-def get_top_tendencias(tendencias, n=10):
-    filtrado = {
-        k: v
-        for k, v in tendencias.items()
-        if v["total"] >= MINIMO_OCORRENCIAS and v["porcentagem"] >= 80
-    }
-    return sorted(filtrado.items(), key=lambda x: -x[1]["porcentagem"])[:n]
+def get_numeros_validos(tendencias):
+    """Retorna números órfãos que tiveram pelo menos 5 ocorrências de 'órfão pagou órfão'"""
+    numeros_validos = []
+    for numero, stats in tendencias.items():
+        if stats["total"] >= 5:  # Mínimo 5 ocorrências
+            numeros_validos.append(numero)
+    return numeros_validos
 
 
 async def notificar_entrada(roulette_id, numero, tendencias):
     stats = tendencias[numero]
-    message = f"🔥 ENTRADA PADRÃO 12 - {numero} ({stats['chamou_12']}/{stats['total']})\n"
+    message = (
+        f"🔥 ENTRADA ORPHELINS - {numero} ({stats['chamou_orph']}/{stats['total']})\n"
+    )
     await send_telegram_message(message, LINK_MESA_BASE)
 
 
 async def fetch_results_http(session, mesa_nome):
     try:
-        async with session.get(API_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+        async with session.get(
+            API_URL, timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 resultados = data.get(mesa_nome, {}).get("results", [])
-                return [int(r["number"]) for r in resultados if r.get("number", "").isdigit()]
+                return [
+                    int(r["number"])
+                    for r in resultados
+                    if r.get("number", "").isdigit()
+                ]
             else:
                 print(f"[ERRO] Status HTTP {resp.status} ao buscar resultados")
                 return []
@@ -141,7 +152,6 @@ def salvar_dados_monitoramento():
         with open(MONITORING_FILE, "w", encoding="utf-8") as f:
             json.dump(dados_monitoramento, f, indent=2, ensure_ascii=False)
 
-        print(f"[MONITORING] Dados salvos em: {datetime.now().strftime('%H:%M:%S')}")
 
     except Exception as e:
         print(f"[ERRO] Falha ao salvar dados de monitoramento: {str(e)}")
@@ -162,18 +172,20 @@ async def monitor_roulette(roulette_id):
     # Criar sessão uma única vez para manter conexão ativa
     session = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=30),
-        connector=aiohttp.TCPConnector(limit=100, limit_per_host=30, ssl=False)
+        connector=aiohttp.TCPConnector(limit=100, limit_per_host=30, ssl=False),
     )
-    
+
     while True:
         try:
             # Verificar se a sessão ainda está ativa, se não, recriar
             if session.closed:
                 session = aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=30),
-                    connector=aiohttp.TCPConnector(limit=100, limit_per_host=30, ssl=False)
+                    connector=aiohttp.TCPConnector(
+                        limit=100, limit_per_host=30, ssl=False
+                    ),
                 )
-            
+
             hoje = datetime.now().date()
             if mesa["data_atual"] != hoje:
                 mesa.update(
@@ -205,36 +217,34 @@ async def monitor_roulette(roulette_id):
 
             if historico_size >= MINIMO_RODADAS_ANALISE:
                 nova_tendencia = analisar_tendencias(mesa["historico"])
-                novo_top = get_top_tendencias(nova_tendencia)
-                novo_top_numeros = [num for num, _ in novo_top]
+                numeros_validos = get_numeros_validos(nova_tendencia)
 
                 top_tendencias_anterior = set(mesa["top_tendencias"])
-                top_tendencias_atual = set(novo_top_numeros)
-                top_tendencias_mudou = (
-                    top_tendencias_anterior != top_tendencias_atual
-                )
+                top_tendencias_atual = set(numeros_validos)
+                top_tendencias_mudou = top_tendencias_anterior != top_tendencias_atual
 
                 mesa["tendencias"] = nova_tendencia
-                mesa["top_tendencias"] = novo_top_numeros
-                mesa["ultima_porcentagem_top"] = {
-                    num: nova_tendencia[num]["porcentagem"]
-                    for num in novo_top_numeros
-                }
+                mesa["top_tendencias"] = numeros_validos
 
                 if top_tendencias_mudou:
                     print(
-                        f"[MONITORING] Lista de números monitorados mudou: {top_tendencias_anterior} -> {top_tendencias_atual}"
+                        f"[MONITORING] Lista de números válidos mudou: {top_tendencias_anterior} -> {top_tendencias_atual}"
                     )
                     salvar_dados_monitoramento()
 
-                numero_atual = mesa["historico"][0]
-                if numero_atual == mesa["ultimo_numero_processado"]:
+                # Comparar os 5 primeiros elementos da lista para detectar mudanças
+                historico_atual = list(mesa["historico"])[:5]
+                historico_anterior = mesa.get("ultimos_5_processados", [])
+
+                if historico_atual == historico_anterior:
                     await asyncio.sleep(2)
                     continue
 
-                mesa["ultimo_numero_processado"] = numero_atual
+                # Atualizar os últimos 5 processados
+                mesa["ultimos_5_processados"] = historico_atual.copy()
+                numero_atual = historico_atual[0]
 
-                if not mesa["entrada_ativa"] and numero_atual in novo_top_numeros:
+                if not mesa["entrada_ativa"] and numero_atual in numeros_validos:
                     mesa["entrada_ativa"] = True
                     mesa["numero_entrada"] = numero_atual
                     mesa["gale"] = 0
@@ -279,7 +289,7 @@ async def monitor_roulette(roulette_id):
                             if mesa["greens_consecutivos"] == 7:
                                 mesa["entrada_real"] = True
                                 print(f"[ALERTA DE 7 GREENS] - {numero_atual}")
-                                msg = f"⚠️ PADRÃO 12 ⚠️\n\n🚨 7 GREENS CONSECUTIVOS! 🚨\n"
+                                msg = f"⚠️ ORPHELINS ⚠️\n\n🚨 7 GREENS CONSECUTIVOS! 🚨\n"
                                 await send_telegram_message(msg, LINK_MESA_BASE)
 
                         salvar_dados_monitoramento()
@@ -337,17 +347,13 @@ async def main():
     """Função principal com tratamento de erros e reinicialização automática"""
     while True:
         try:
-            print(f"[SISTEMA] Iniciando bot em: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             await start_all()
         except KeyboardInterrupt:
-            print("[SISTEMA] Interrupção detectada, reiniciando em 5 segundos...")
             await asyncio.sleep(5)
         except Exception as e:
             print(f"[ERRO SISTEMA] Erro crítico: {str(e)}")
-            print(f"[SISTEMA] Reiniciando em 10 segundos...")
             await asyncio.sleep(10)
         except asyncio.CancelledError:
-            print("[SISTEMA] Tarefa cancelada, reiniciando...")
             await asyncio.sleep(2)
 
 
@@ -358,7 +364,7 @@ if __name__ == "__main__":
         print("[SISTEMA] Bot finalizado pelo usuário")
     except Exception as e:
         print(f"[ERRO CRÍTICO] {str(e)}")
-        print("[SISTEMA] Reiniciando automaticamente...")
         import sys
         import subprocess
+
         subprocess.run([sys.executable, __file__])
